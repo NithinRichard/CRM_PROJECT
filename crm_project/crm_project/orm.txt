@@ -1,0 +1,8 @@
+orm queries
+
+Modelname.objects.create(field = value,field = value)
+
+Books.objects.create(name="The Goat Life",author = "Benyamin")
+
+Students.objects.create(first_name = "Sharon",course = "python django",district = "thiruvananthapuram")
+
