@@ -4,7 +4,7 @@ from django.views.generic import View
 
 from . models import DistrictChoices,TrainerChoices,BatchChoices,CourseChoices
 
-from .utility import get_admission_number,get_password
+from .utility import get_admission_number,get_password,send_email
 
 from .models import Students
 
@@ -21,6 +21,27 @@ from django.contrib.auth.decorators import login_required
 from django.utils.decorators import method_decorator
 
 from authentication.permissions import permission_roles
+
+# email related imports
+
+from django.core.mail import EmailMultiAlternatives
+
+from django.template.loader import render_to_string
+
+from django.conf import settings
+
+import threading
+
+import datetime
+
+# payment related imports
+
+from payments.models import PaymentStatusChoice,Payment
+
+
+
+
+
 
 
 
@@ -65,6 +86,7 @@ class StudentsListView(View):
 
           role = request.user.role
 
+
           if role in ["Trainer"]:
 
                students = Students.objects.filter(active_status=True,trainer__profile = request.user)
@@ -73,6 +95,29 @@ class StudentsListView(View):
 
                     students = Students.objects.filter(Q(active_status = True)&
                                                        Q(trainer__profile=request.user)&
+                                                       (Q(first_name__icontains=query)|
+                                                        Q(last_name__icontains=query)|
+                                                        Q(house_name__icontains=query)|
+                                                        Q(district__icontains=query)|
+                                                        Q(contact_num__icontains=query)|
+                                                        Q(adm_number__icontains=query)|
+                                                        Q(email__exact=query)|
+                                                        Q(pincode__icontains=query)|
+                                                        Q(course__name__icontains=query)|
+                                                        Q(trainer__first_name__icontains=query)|
+                                                        Q(trainer__last_name__icontains=query)|
+                                                        Q(batch__name__icontains=query)
+                                                        )
+                                                        )
+                    
+          elif role in ["Academic Counsellor"]:
+
+               students = Students.objects.filter(active_status = True,batch__academic_counsellor__profile = request.user)
+
+               if query:
+
+                    students = Students.objects.filter(Q(active_status = True)&
+                                                       Q(batch__academic_counsellor__profile =request.user)&
                                                        (Q(first_name__icontains=query)|
                                                         Q(last_name__icontains=query)|
                                                         Q(house_name__icontains=query)|
@@ -120,6 +165,7 @@ class RegisterView(View):
 
           form = StudentRegisterForm()
 
+          
           # data = {"districts":DistrictChoices,"batches":BatchChoices,"trainers":TrainerChoices,"courses":CourseChoices,"form":form}
 
           data = {"form":form}
@@ -132,6 +178,8 @@ class RegisterView(View):
      def post(self,request,*args,**kwargs):
 
           form = StudentRegisterForm(request.POST,request.FILES)
+
+        
 
           if form.is_valid():
 
@@ -156,7 +204,56 @@ class RegisterView(View):
 
                     student.save()
 
-               return redirect("students-list")
+                    # payment section
+
+                    fee = student.course.offer_fee if student.course.offer_fee else student.course.fee
+
+                    Payment.objects.create(student=student,amount = fee)
+
+                    
+
+
+                    # sending login credentials to student throgh mail
+
+                    subject = 'Login Credentials'
+
+               
+
+                    recepients = [student.email]
+
+                    template = "email/login-credentials.html"
+
+                    join_date = student.join_date
+
+                    date_after_10_days = join_date + datetime.timedelta(days=10)
+
+                    print(date_after_10_days)
+
+                    context = {"name":f"{student.first_name} {student.last_name}","username":username,"password":password,"date_sfter_10_days":date_after_10_days}
+
+                    send_email(subject,recepients,template,context)
+
+                    thread = threading.Thread(target=send_email,args=(subject,recepients,template,context))
+
+                    thread.start()   
+
+                    return redirect("students-list")    
+
+                   
+
+                  
+
+
+
+
+
+
+                    
+
+
+                    
+
+               
           
           else:
 
@@ -280,14 +377,14 @@ class StudentDetailView(View):
      
 # student delete view
 
-@method_decorator(permission_roles(roles=["Admin","Sales","Trainer","Academic Counsellor"]),name="dispatch")     
+@method_decorator(permission_roles(roles=["Admin","Sales"]),name="dispatch")     
 class StudentDeleteView(View):
 
      def get(self,request,*args,**kwargs):
 
           uuid = kwargs.get("uuid")
 
-          student = GetStudentObject().get_student(uuid,request)
+          student = GetStudentObject().get_student(request,uuid)
           
           # student.delete()
 
@@ -303,7 +400,7 @@ class StudentUpdateView(View):
 
           uuid = kwargs.get("uuid")
 
-          student = GetStudentObject().get_student(uuid,request)
+          student = GetStudentObject().get_student(request,uuid)
 
           form = StudentRegisterForm(instance=student)
 
@@ -317,7 +414,7 @@ class StudentUpdateView(View):
 
           uuid = kwargs.get("uuid")
 
-          student = GetStudentObject().get_student(uuid,request)
+          student = GetStudentObject().get_student(request,uuid)
 
           form =  StudentRegisterForm(request.POST,request.FILES,instance=student)
 
